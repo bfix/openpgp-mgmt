@@ -1,0 +1,259 @@
+#!/bin/bash
+#
+# /etc/init.d/firewall -- start-up script for firewall (IPv4,IPv6)
+#
+# Written by Bernd Fix <brf@hoi-polloi.org>.
+#
+### BEGIN INIT INFO
+# Provides:          firewall
+# Required-Start:    $local_fs $network
+# Required-Stop:     $local_fs $network
+# Should-Start:      
+# Should-Stop:       
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start firewall.
+# Description:       Start-up script for IPTABLES firewall.
+### END INIT INFO
+
+set -e
+PATH=/bin:/usr/bin:/sbin:/usr/sbin
+
+if [ `id -u` -ne 0 ]; then
+    echo "You need root privileges to run this script"
+    exit 1
+fi
+
+if [ -r /etc/default/locale ]; then
+    . /etc/default/locale
+    export LANG
+fi
+
+#------------------------------------------------------------------------------
+# define constants
+#------------------------------------------------------------------------------
+
+LO_IFACE="lo"
+IP4_LO="127.0.0.1/32"
+IP6_LO="::1"
+IP4_LAN="192.168.0.0/16"
+IP6_LAN="fd00::0/8"
+LOCKFILE="/var/lock/iptables"
+IPTABLES=/usr/sbin/iptables
+IP6TABLES=/usr/sbin/ip6tables
+
+###############################################################################
+
+function resolve() {
+    PRE=$1
+    shift
+    CMD=""
+    for arg in $*; do
+        if [[ "${arg}" == @* ]]; then
+            SUBST=$(echo ${arg} | sed -e "s/@{\([^}]*\)}/\${${PRE}\1}/")
+            CMD="${CMD} $(eval echo ${SUBST})"
+        else
+            CMD="${CMD} ${arg}"
+        fi
+    done
+    echo "${CMD}"
+}
+
+#------------------------------------------------------------------------------
+
+function ipt() {
+    VER=$1
+    shift
+    if [[ "${VER}" == *4* ]]; then
+        ${IPTABLES} $(resolve IP4_ "$*")
+    fi
+    if [[ "${VER}" == *6* ]]; then
+        ${IP6TABLES}  $(resolve IP6_ "$*")
+    fi
+}
+
+###############################################################################
+
+start() {
+    echo "Applying iptables firewall rules: "
+
+    #----------------------------------------------------------------------
+    echo "  Flushing rules... "
+    ipt 46 -F INPUT
+    ipt 46 -F FORWARD
+    ipt 46 -F OUTPUT
+
+    #----------------------------------------------------------------------
+    echo "  Setting default policies... "
+    ipt 46 -P INPUT DROP
+    ipt 46 -P FORWARD ACCEPT
+    ipt 46 -P OUTPUT ACCEPT
+
+    #----------------------------------------------------------------------
+    echo "  Creating SSH rule chain... "
+    #----------------------------------------------------------------------
+    ipt 46 -N SSH_CHECK
+    ipt 46 -A SSH_CHECK -m recent --set --name SSH
+    ipt 4  -A SSH_CHECK -s $IP4_LAN -j ACCEPT
+    ipt 6  -A SSH_CHECK -s $IP6_LAN -j ACCEPT
+    ipt 46 -A SSH_CHECK -m recent --update --seconds 60 --hitcount 2 --name SSH -j LOG --log-prefix "SSH_Break-in-attempt:"
+    ipt 46 -A SSH_CHECK -m recent --update --seconds 60 --hitcount 2 --name SSH -j DROP
+    ipt 46 -A SSH_CHECK -j ACCEPT
+
+    #----------------------------------------------------------------------
+    echo "  Creating protocol-based rule chains... "
+    #----------------------------------------------------------------------
+    # TCP rules
+    #----------------------------------------------------------------------
+    ipt 46 -N TCP_RULES
+
+    #----------------------------------------------------------------------
+    # UDP rules
+    #----------------------------------------------------------------------
+    ipt 46 -N UDP_RULES
+    # allow response from DNS servers
+    ipt 46 -A UDP_RULES -p UDP --sport 53 -j ACCEPT
+
+    #----------------------------------------------------------------------
+    # ICMP rules
+    #----------------------------------------------------------------------
+    ipt 46 -N ICMP_RULES
+    # IPv4: respond to PING, PONG, FRAGMENTATION-NEEDED, HOST-UNREACHABLE and TIME-EXCEEDED
+    ipt 4 -A ICMP_RULES -p ICMP --icmp-type echo-reply -j ACCEPT
+    ipt 4 -A ICMP_RULES -p ICMP --icmp-type echo-request -j ACCEPT
+    ipt 4 -A ICMP_RULES -p ICMP --icmp-type host-unreachable -j ACCEPT
+    ipt 4 -A ICMP_RULES -p ICMP --icmp-type time-exceeded -j ACCEPT
+    ipt 4 -A ICMP_RULES -p ICMP --icmp-type fragmentation-needed -j ACCEPT
+
+    # IPv6: PACKET-TOO-BIG and upper types
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type packet-too-big -j ACCEPT
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type echo-request -j ACCEPT
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type echo-reply -j ACCEPT
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type router-solicitation -j ACCEPT
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type router-advertisement -j ACCEPT
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type neighbour-solicitation -j ACCEPT
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type neighbour-advertisement -j ACCEPT
+    ipt 6 -A ICMP_RULES -p ICMPv6 --icmpv6-type redirect -j ACCEPT
+
+    #----------------------------------------------------------------------
+    echo "  Creating filter::INPUT rule chain... "
+
+    #======================================================================
+    # INPUT chain for 'filter'
+    #======================================================================
+
+    # prevent port scans
+    ipt 46 -A INPUT -p TCP ! --syn -m state --state NEW -j DROP
+
+    # prevent SSH scans
+    ipt 46 -A INPUT -p TCP --dport 22 -m state --state NEW -j SSH_CHECK
+
+    # enable local packets and established connections
+    ipt 46 -A INPUT -p ALL -i $LO_IFACE -d @{LO} -j ACCEPT
+    ipt 46 -A INPUT -p ALL -m state --state ESTABLISHED,RELATED -j ACCEPT
+    ipt 4  -A INPUT -p ALL -d 224.0.0.0/4 -j ACCEPT
+    ipt 6  -A INPUT -p ALL -d ff02::fb -j ACCEPT
+
+    # dispatch packets based on their protocol
+    ipt 46 -A INPUT -p TCP  -j TCP_RULES
+    ipt 4  -A INPUT -p ICMP -j ICMP_RULES
+    ipt 6  -A INPUT -p ICMPv6 -j ICMP_RULES
+    ipt 46 -A INPUT -p UDP  -j UDP_RULES 
+
+    ipt 46 -A INPUT -j LOG --log-prefix "INPUT:"
+
+    echo "IPtables firewall configuration completed."
+    touch $LOCKFILE
+}
+
+############################################################################### 
+
+stop() {
+    chains=`cat /proc/net/ip_tables_names 2>/dev/null`
+    for i in $chains; do ipt 4 -t $i -F; done
+    for i in $chains; do ipt 4 -t $i -X; done
+
+    chains=`cat /proc/net/ip6_tables_names 2>/dev/null`
+    for i in $chains; do ipt 6 -t $i -F; done
+    for i in $chains; do ipt 6 -t $i -X; done
+
+    echo "Resetting built-in chains to the default ACCEPT policy:"
+    ipt 46 -P INPUT ACCEPT
+    ipt 46 -P OUTPUT ACCEPT
+    ipt 46 -P FORWARD ACCEPT
+    drop_rules
+    rm -f $LOCKFILE
+}
+
+############################################################################### 
+
+drop_rules() {
+    ipt 46 -F INPUT
+    ipt 46 -F FORWARD
+    ipt 46 -F OUTPUT
+} 
+
+###############################################################################
+#     task dispatcher
+###############################################################################
+
+case "$1" in
+
+    #----------------------------------
+    start)
+        start
+        ;;
+
+    #----------------------------------
+    stop)
+        stop
+        ;;
+
+    #----------------------------------
+    restart)
+        stop
+        sleep 1
+        start
+        ;;
+
+    #----------------------------------
+    force-reload)
+        stop
+        sleep 1
+        start
+        ;;
+
+    #----------------------------------
+    condrestart)
+        [ -e $LOCKFILE ] && start
+        ;;
+
+    #----------------------------------
+    status)
+        echo "--------------------------------------------"
+        echo "Table: IPv4 filter"
+        echo "--------------------------------------------"
+        ipt 4 --list
+        echo "--------------------------------------------"
+        echo "Table: IPv6 filter"
+        echo "--------------------------------------------"
+        ipt 6 --list
+        ;;
+
+    #----------------------------------
+    panic)
+        echo -n "Changing target policies to DROP: "    
+        ipt 46 -P INPUT DROP
+        ipt 46 -P FORWARD DROP
+        ipt 46 -P OUTPUT DROP
+        drop_rules
+        ;;
+
+    #----------------------------------
+    *)
+        echo "Usage: $0 {start|stop|restart|condrestart|status|panic}"
+        exit 1
+        ;;
+esac
+
+exit 0
