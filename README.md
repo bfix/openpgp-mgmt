@@ -113,9 +113,9 @@ Make sure you backup the managed private key to **cold storage**; you will need 
 
 *Remark*: A single **MT** that can hold the primary key of **multiple** OpenPGP keys. Even if only one **MT** is required, you can of course use multiple **MT**s (for groups of keys or even individual keys) if you want.
 
-## The intermediate private key (TEMP_PRV)
+## The private key for daily-use (USE_PRV)
 
-The intermediate private key is also only used in the secure environment; it is an intermediate step towards the private key that will be used for daily work. The intermediate key does not contain the secrets of the subkeys anymore, but references keys on your **OT**; each OpenPGP key needs its own token:
+This key is the last step towards the private key that will be used for daily work. The key does not contain the secrets of the subkeys anymore, but references keys on your **OT**; each OpenPGP key needs its own token:
 
     ┌─────────────────────────────────┐
     |  Private OpenPGP key (TEMP_PRV) |
@@ -134,26 +134,7 @@ The intermediate private key is also only used in the secure environment; it is 
     |   [A]uthentication key: ◄───/   |        └────────────────────┘
     └─────────────────────────────────┘
 
-## The daily-use private key (WORK_PRV)
-
-The work private key is used in the daily work of signing or decrypting messages; it can also be used to authenticate you to remote systems (e.g. via SSH). It is derived from the intermediate key by removing the primary secret key which is no longer required:
-
-    ┌─────────────────────────────────┐
-    |  Private OpenPGP key (WORK_PRV) |
-    ├─────────────────────────────────┤
-    | User IDs:                       |
-    |   (1) Name-1 <EMail-1>          |
-    |   (2) Name-2 <EMail-2>          |
-    |   (3) ...                       |
-    |    :                            |
-    ├─────────────────────────────────┤
-    | SubKeys:                        |
-    |   [S]igning key:        ◄───\   |        ┌────────────────────┐
-    |   [E]ncryption key:     ◄────==========► | OpenPGP token (OT) |
-    |   [A]uthentication key: ◄───/   |        └────────────────────┘
-    └─────────────────────────────────┘
-
-You need to import this private key on all machines where you want to use OpenPGP functionality.
+You need to import this private key on all machines where you want to use OpenPGP functionality. The asscoiated public key should be published via WKD or keyserver, so others can write encrypted messages and verify your signatures.
 
 # Conventions
 
