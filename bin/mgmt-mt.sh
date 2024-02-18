@@ -27,7 +27,8 @@ mkdir ${GNUPGHOME}
 chmod 700 ${GNUPGHOME}
 cp conf/gpg-agent.conf ${GNUPGHOME}
 cp conf/gnupg-pkcs11-scd.conf ${GNUPGHOME}
-alias p11t="pkcs11-tool --module @PKCS11LIB@"
+export PKCS11LIB=@PKCS11LIB@
+alias p11t="pkcs11-tool --module ${PKCS11LIB}"
 export PS1="\w:\033[01;31m\]mt\033[00m\]% "
 cd ${BASE}
 EOF
