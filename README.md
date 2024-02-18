@@ -10,6 +10,10 @@ You should have received a copy of the GNU Affero General Public License along w
 
 SPDX-License-Identifier: AGPL3.0-or-later
 
+<!-- markdownlint-disable MD014 -->
+<!-- markdownlint-disable MD025 -->
+<!-- markdownlint-disable MD026 -->
+
 # Private OpenPGP key management for the paranoid
 
 This tutorial is for people who have multiple identities/email addresses, use OpenPGP for many or all of them and are paranoid about the integrity and confidentiality of their keys (and messages). It will not dive into the mechanics of how to create secure passphrases or PINs or what *really* is a safe place to store physical objects like hardware tokens or USB sticks (cold storage). But the proposed workflow in this manual - if followed to the end - will provide a high level of technical protection for your OpenPGP secrets.
@@ -41,7 +45,7 @@ The basic approach is that there is a long-term OpenPGP primary key that will be
   * **Linux Live System (LLS)**:
 
     Install GNU/Linux (Debian 12) on a new USB stick to be used as the environment for the OpenGPG key management. No GUI/X11 packages are required as everything will be done in a shell on the command line, but to support vendor-specific utilities for token handling the installation of X11 (e.g. Xfce) is recommended. Make sure you install Linux into encrypted LVM partitions to protect the integrity of the **LLS**.
-    
+
     Do **not** use this stick for anything else but OpenPGP key management!
 
   * **Cold storage** (backup secrets stored in a safe place)
@@ -153,6 +157,8 @@ Key Management for OpenPGP keys (creating, revoking, rotating/extending, export 
 
 ## Deploy the management tools and utilities
 
+You first need to build the deployment archive `openpgp-mgmt-deploy.tar.gz` by running the script `bin/mkDeploy.sh`. Building the archive requires the `pandoc` and `libreoffice` packages of your Linux distribution. You also need to [install Go v1.20+](https://go.dev/dl/) to compile the executables. Copy the archive to the **Exchange** USB stick.
+
 Login as administrator (`root`), insert the **Exchange** USB stick and mount it on `/mnt`. Extract the deployment archive from the stick:
 
     # cd /opt
@@ -189,6 +195,8 @@ Setting up a new OpenPGP key for an email account involves multiple steps. The e
     $ export USER="John Doe"
     $ export EMAIL=foo@bar.net
 
+*N.B.*: The tutorial assumes that all the following steps are performed in one session; if you leave the shell in between, you might need to reload keys from the cold storage before continuing.
+
 ### 1. Create a RSA key and self-signed X.509 certificate in PEM format:
 
 You can start with a new key or migrate an existing OpenPGP key:
@@ -197,6 +205,8 @@ You can start with a new key or migrate an existing OpenPGP key:
 
     $ cd /tmp
     $ openssl genrsa -out key.pem 4096
+
+The key in this tutorial is created with `openssl` and not on the token, which might have a weaker entropy source to generate a truely random key. If you choose to generate the key on the token, follow the section `Generating a new key on the token` in the `TOKEN.{md,pdf}` document. Continue with chapter 3 of this section afterwards.
 
 #### ... or migrate an existing OpenPGP key
 
@@ -367,10 +377,10 @@ Change properties of the **OT** by running `gpg --edit-card` and applying change
 
 ### 6. Prepare the public and private keys for daily use
 
-To save the key (private and public) for daily use, export them to files that **must** be stored on the **Exchange** stick (and on **cold storage** too), so you can use them on other maschines:
+To save the key (private and public) for daily use, export them to files that **must** be stored on the **Exchange** stick (and on **cold storage** too), so you can use them on other maschines.
 
+    ot% gpg --armor --export ${KEYID} > pub.use.asc
     ot% gpg --armor --export-secret-key ${KEYID} > prv.use.asc
-    ot% gpg --armor --export-key ${KEYID} > pub.use.asc
     ot% cp *.use.asc ...
 
 ## Rotating OpenPGP keys

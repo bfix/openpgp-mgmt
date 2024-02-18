@@ -10,6 +10,10 @@ You should have received a copy of the GNU Affero General Public License along w
 
 SPDX-License-Identifier: AGPL3.0-or-later
 
+<!-- markdownlint-disable MD014 -->
+<!-- markdownlint-disable MD024 -->
+<!-- markdownlint-disable MD025 -->
+
 # Prepare the management token (MT)
 
 Steps preparing the **MT** for use in our key management depend on the brand/model of the token you want to use:
@@ -89,3 +93,29 @@ If you need to change or unblock PINs, use the following commands:
                --init-pin --new-pin=<new user PIN>
 
 Please note that a blocked SO-PIN **cannot** be unblocked; the device is rendered unusable!
+
+# Generating a new key on the token
+
+If you choose to generate a new key (with a self-signed certificate) on the token (instead of using `openssl` as described in `README`), you can do so with the following steps:
+
+## 1. Generate a new key
+
+    mt% export TID=bf01
+    mt% p11t --login --keypairgen --key-type RSA:4096 --id ${TID} --label ${EMAIL}
+
+## 2. Generate self-signed certificate
+
+    mt% openssl req -x509 -new -out cert.pem \
+            -engine pkcs11 -keyform engine -key ${TID} \
+            -sha256 -days 3653 -subj "/CN=${EMAIL}"
+            -config <(echo "[req]"; \
+                    echo "distinguished_name = req_distinguished_name"; \
+                    echo "[req_distinguished_name]")
+
+# 3. Upload certificate to token
+
+    mt% p11t --login -write-object cert.pem -type cert --label ${EMAIL} --id $(TID)
+
+# 4. Save key to cold storage
+
+Export the new key and certificate to a file in cold storage.
